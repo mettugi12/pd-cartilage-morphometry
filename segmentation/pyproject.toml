@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knee-mr-seg"
+version = "0.2.0"
+description = "Knee MRI segmentation hub: nnU-Net inference, dual-plane fusion, RECON depth super-resolution, Dejour classification, atlas-based postprocessing"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+    "nibabel",
+    "SimpleITK",
+    "scikit-image",
+    "matplotlib",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+vtk = ["vtk>=9.2.0"]
+pyvista = ["pyvista"]
+training = ["nnunetv2"]
+full = ["vtk>=9.2.0", "pyvista", "trimesh", "pydicom"]
+
+[tool.setuptools.packages.find]
+include = ["knee_mr_seg*"]

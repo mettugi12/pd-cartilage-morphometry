@@ -1,0 +1,29 @@
+{
+    "labels": {
+        "0": "Background",
+        "1": "Patella",
+        "2": "Femur",
+        "3": "Tibia",
+        "4": "Patella_cart",
+        "5": "Femur_cart",
+        "6": "Tibia_cart",
+        "7": "Med_Meniscus",
+        "8": "Lat_Meniscus",
+        "9": "ACL",
+        "10": "PCL",
+        "11": "Patellar_tendon",
+        "12": "Hoffa_fat_pad",
+        "13": "Effusion"
+    },
+    "bones": [1, 2, 3],
+    "cartilage": [4, 5, 6],
+    "bone_to_cartilage": {"1": 4, "2": 5, "3": 6},
+    "menisci": [7, 8],
+    "ligaments": [9, 10, 11],
+    "synovial": [12, 13],
+    "added_in": "Dataset220_Knee13",
+    "notes": {
+        "compat": "Labels 0-11 are identical to labels_11class.json, so an 11-class consumer can read a 13-class mask by treating 12 and 13 as background.",
+        "synovial": "12 and 13 are the MOAKS substrates for synovitis on non-contrast PD: Hoffa-synovitis is graded from fat pad signal change, effusion-synovitis from fluid volume. Neither label is synovial membrane, which non-contrast PD cannot resolve."
+    }
+}

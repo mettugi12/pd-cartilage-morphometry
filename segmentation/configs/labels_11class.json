@@ -1,0 +1,21 @@
+{
+    "labels": {
+        "0": "Background",
+        "1": "Patella",
+        "2": "Femur",
+        "3": "Tibia",
+        "4": "Patella_cart",
+        "5": "Femur_cart",
+        "6": "Tibia_cart",
+        "7": "Med_Meniscus",
+        "8": "Lat_Meniscus",
+        "9": "ACL",
+        "10": "PCL",
+        "11": "Patellar_tendon"
+    },
+    "bones": [1, 2, 3],
+    "cartilage": [4, 5, 6],
+    "bone_to_cartilage": {"1": 4, "2": 5, "3": 6},
+    "menisci": [7, 8],
+    "ligaments": [9, 10, 11]
+}

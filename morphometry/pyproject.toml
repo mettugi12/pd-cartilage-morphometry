@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cartilage-morphometry"
+version = "0.6.0"
+description = "Knee-MR cartilage morphometry: per-vertex thickness, atlas-anchored standardization, subregions, DESS validation. Consumes segmentation masks from knee-mr-seg."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "mettugi12" }]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "scikit-image>=0.20",
+    "scikit-learn>=1.2",
+    "nibabel>=5.0",
+    "pyvista>=0.42",
+    "matplotlib>=3.7",
+    # RECON net comes from knee-mr-seg (knee_mr_seg.recon). Install knee-mr-seg
+    # in dev mode from KneeMR/Repos/knee-mr-seg/.
+]
+
+[project.urls]
+Homepage = "https://github.com/mettugi12/cartilage-morphometry"
+
+[tool.setuptools.packages.find]
+include = ["cartilage_morphometry*", "knee_mr_cartilage*"]

@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+# never commit imaging data or trained weights
+*.nii
+*.nii.gz
+*.dcm
+*.npz
+*.pth
+*.onnx
+weights/
+data/
