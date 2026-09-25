@@ -3,7 +3,7 @@
 Reads ../results/v9_prog_qcpass.csv (n=150, already deduped by qc_labelfree_v9.py) and
 renders, in the v8b house style:
 
-  Figure3_longitudinal_BA.png       Bland-Altman, PD-auto vs manual DESS (QCart) 48-month Δ,
+  Figure3_longitudinal_BA.png       Bland-Altman, PD-auto vs manual DESS 48-month Δ,
                                     MFTC / cMF / MT
   Figure4_longitudinal_scatter.png  per-knee scatter with identity + fit line, r
 
@@ -90,7 +90,7 @@ def fig_scatter(rows):
         xs = np.array([lo, hi])
         ax.plot(xs, a + b * xs, color=RED, lw=1.0, label=f"fit (r={r:.2f})")
         ax.set_title(f"{reg}  (n={len(pd)})", fontsize=8)
-        ax.set_xlabel("Manual DESS (QCart) Δ (µm)", fontsize=7)
+        ax.set_xlabel("Manual DESS Δ (µm)", fontsize=7)
         ax.set_ylabel("PD-auto Δ (µm)", fontsize=7)
         ax.tick_params(labelsize=6.5)
         ax.legend(loc="upper left", fontsize=6, frameon=False)

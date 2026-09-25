@@ -23,3 +23,24 @@ Pinned application pipeline (see `../DATASET.md`): `cartilage-morphometry@1947e0
 | `make_cohort_flow_v9.py` | Figure S1 (cohort flow, counts computed from data) |
 | `diagnose_lateral_v9.py` | lateral drift diagnosis on the 150/151 frame |
 | `build_tables_v9.py` | assembles `manuscript/tables/Table1–3, S1–S2` from results |
+
+## v9.1 additions (Scientific Reports submission, 2026-09)
+
+| Script | Role |
+|---|---|
+| `drift_adjusted_contrast_v9.py` | progressor-minus-stable excess per region/method with bootstrap CIs, PD/reference ratio, drift-corrected SRM, Cohen's d, tibial thirds, drift by KL grade (Supplementary Table S7) |
+| `subject_overlap_sensitivity_v9_1.py` | five participants contribute opposite knees to both arms: subject-disjoint re-analysis + participant-clustered bootstrap (Supplementary Table S8) |
+| `eval_seg_test_v9_1.py` | reproducible held-out segmentation evaluation (Dice / HD95 / ASSD, pooled and by OAI vs hospital source) → Supplementary Table S1 |
+| `make_figure_seg_qual_v9.py` | Supplementary Fig. S4 (held-out contours, manual vs automated, paired DESS) |
+
+### Site-specific paths
+
+Data-acquisition and orchestration scripts (`download_nonprog_iw.py`, `convert_stage_nonprog.py`,
+`run_*_v8b.py`, `run_prog_icp_v9.py`, `make_cohort_flow_v9.py`, `eval_seg_test_v9_1.py`,
+`make_figure_seg_qual_v9.py`) carry the authors' local data roots as module-level constants
+(`ROOT`, `OUT_ROOT`, `MERGED_V33`, `COHORT`, `EVAL`, `TRIPLE`, `REPO`) at the top of each file.
+Edit those constants for your environment. The statistical scripts (`aggregate_*`, `qc_labelfree_v9.py`,
+`drift_adjusted_contrast_v9.py`, `subject_overlap_sensitivity_v9_1.py`, `sample_size_v9.py`,
+`make_figures*_v9.py`) read only the per-knee CSVs in `../results/` and run anywhere.
+OAI imaging and the expert manual DESS morphometry (kMRI_QCart_Eckstein) must be obtained from
+https://nda.nih.gov/oai under the OAI data-use agreement.

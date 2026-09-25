@@ -64,7 +64,7 @@ def main():
     # header (wide, short lines so nothing can overflow)
     box(ax, 1.0, 7.3, 9.0, 0.7,
         "OAI knees with 48-month follow-up: sagittal PD fat-suppressed FSE at 00m and 48m\n"
-        "manual QCart (DESS) readings available for all knees", fc="#e8eef7", bold=True, fs=9)
+        "manual DESS (Chondrometrics) readings available for all knees", fc="#e8eef7", bold=True, fs=9)
 
     cols = {"progressor": 0.5, "stable": 5.9}
     titles = {"progressor": "Radiographic medial-JSW progressors", "stable": "JSW-stable knees"}

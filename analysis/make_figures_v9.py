@@ -5,9 +5,9 @@ Reads ../results/v8b_merged_deltas.csv (progressors) + v8b_nonprog_deltas.csv
 table exactly, and renders:
 
   Figure5_discrimination.png   1x3 ROC panels (MFTC / cMF / MT): PD-auto vs
-                               manual DESS (QCart) detecting radiographic progressors
+                               manual DESS detecting radiographic progressors
                                from 48-month thickness change. AUC in legend.
-  FigureS2_distributions.png   2x3 (rows: PD-auto, manual DESS (QCart)): overlapping
+  FigureS2_distributions.png   2x3 (rows: PD-auto, manual DESS): overlapping
                                progressor / stable delta distributions with the
                                SDC95 detection limit marked. Shows the stable-
                                knee drift directly. Proposed as supplementary.
@@ -38,7 +38,7 @@ FIGDIR.mkdir(parents=True, exist_ok=True)
 
 REGIONS = ["MFTC", "cMF", "MT"]
 BLUE = "#2c6fbb"   # PD-auto (house data color)
-DARK = "#444444"   # manual DESS (QCart) (luminance-separated, grayscale-safe)
+DARK = "#444444"   # manual DESS (luminance-separated, grayscale-safe)
 RED = "#c0392b"    # progressor fill in distribution panels
 GRAY = "#7f8c9b"   # stable fill
 
@@ -80,7 +80,7 @@ def fig_roc(prog, nonp):
         dp_qc = col(prog, f"eck_{reg}_d"); dn_qc = col(nonp, f"eck_{reg}_d")
         for dp, dn, color, ls, name in (
                 (dp_pd, dn_pd, BLUE, "-", "PD-auto"),
-                (dp_qc, dn_qc, DARK, "--", "Manual DESS (QCart)")):
+                (dp_qc, dn_qc, DARK, "--", "Manual DESS")):
             fpr, tpr = roc_points(dp, dn)
             a = auc_mw(dp, dn)
             ax.plot(fpr, tpr, color=color, ls=ls, lw=1.2,
@@ -104,7 +104,7 @@ def fig_roc(prog, nonp):
 
 def fig_distributions(prog, nonp):
     fig, axes = plt.subplots(2, 3, figsize=(13, 7.6), sharex="col")
-    for row, (tag, label) in enumerate((("pd", "PD-auto"), ("eck", "Manual DESS (QCart)"))):
+    for row, (tag, label) in enumerate((("pd", "PD-auto"), ("eck", "Manual DESS"))):
         for j, reg in enumerate(REGIONS):
             ax = axes[row, j]
             dp = col(prog, f"{tag}_{reg}_d") * 1000
