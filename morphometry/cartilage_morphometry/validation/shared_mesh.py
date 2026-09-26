@@ -85,6 +85,67 @@ def _idw_sample(query_pts: np.ndarray, source_pts: np.ndarray,
     return (weights * source_values[idxs]).sum(axis=1)
 
 
+def _followup_symmetric(p00: np.ndarray, p48_aligned: np.ndarray, th48: np.ndarray,
+                        A: np.ndarray, t: np.ndarray, cart48_mask: np.ndarray, sp48,
+                        r_idw: float = 2.0, r_den: float = 1.5, k: int = 6):
+    """Symmetric follow-up sampling for the baseline-grid longitudinal path (v9.2).
+
+    The legacy path IDW-samples the follow-up thickness (including ray-cast MISSES,
+    which carry thickness 0) onto every baseline vertex, then zero-imputes any
+    baseline-footprint grid cell left empty — so measurement failures are censored
+    at baseline but counted as denudation at follow-up (the source of the apparent
+    stable-knee drift; see PD-vs-DESS v9.1 drift diagnosis).
+
+    Here each baseline vertex gets a follow-up STATUS:
+       1 measured : IDW over VALID follow-up vertices only (thickness in
+                    (MIN, MAX)) within `r_idw` mm of the vertex (k nearest);
+       0 denuded  : no valid follow-up measurement AND no follow-up cartilage voxel
+                    within `r_den` mm of the vertex mapped into the follow-up frame
+                    -> thickness 0 (true loss);
+      -1 failed   : no valid measurement but follow-up cartilage IS present nearby
+                    -> NaN, and the grid cell is excluded from BOTH visits' means.
+    Returns (th48_at_00, status, info).
+    """
+    from scipy.ndimage import distance_transform_edt
+    from .. import baseline_grid as _bg
+
+    n = len(p00)
+    out = np.full(n, np.nan, dtype=np.float32)
+    status = np.full(n, -1, dtype=np.int8)
+    valid48 = (th48 > _bg.MIN_THICK_MM) & (th48 < _bg.MAX_THICK_MM)
+    if valid48.sum() >= k:
+        tree = cKDTree(p48_aligned[valid48])
+        vals = np.asarray(th48)[valid48]
+        d, i = tree.query(p00, k=k, distance_upper_bound=r_idw)
+        ok = np.isfinite(d)
+        has = ok.any(axis=1)
+        w = np.where(ok, 1.0 / (d + 1e-6), 0.0)
+        s = w.sum(axis=1)
+        i_safe = np.where(ok, i, 0)
+        est = (w * vals[i_safe]).sum(axis=1) / np.where(s > 0, s, 1.0)
+        out[has] = est[has]
+        status[has] = 1
+    rem = status != 1
+    if rem.any():
+        Ainv = np.linalg.inv(A)
+        x48 = (p00[rem] - t) @ Ainv.T
+        sp = np.asarray(sp48, dtype=float)
+        vox = np.round(x48 / sp).astype(int)
+        shape = np.asarray(cart48_mask.shape)
+        inside = np.all((vox >= 0) & (vox < shape), axis=1)
+        vox = np.clip(vox, 0, shape - 1)
+        edt = distance_transform_edt(~cart48_mask.astype(bool), sampling=tuple(sp))
+        dist = edt[vox[:, 0], vox[:, 1], vox[:, 2]]
+        dist[~inside] = np.inf            # outside the follow-up volume: treat as no cartilage
+        den = dist > r_den
+        idx = np.where(rem)[0]
+        out[idx[den]] = 0.0
+        status[idx[den]] = 0
+    info = {"frac_measured": float((status == 1).mean()), "frac_denuded": float((status == 0).mean()),
+            "frac_failed": float((status == -1).mean())}
+    return out, status, info
+
+
 def scatter_thickness_to_template(template_mesh, aligned_points: np.ndarray,
                                     patient_thickness: np.ndarray,
                                     subch_prob: np.ndarray,
@@ -937,7 +998,16 @@ def process_long_baseline_grid(seg_00m_path: Path, seg_48m_path: Path,
           f"ASSD {assd_before:.2f}→{assd_after:.2f}mm |t|={np.linalg.norm(t):.2f}mm")
 
     # Both timepoints' thickness now live on the SAME 00m bone-mesh vertices p00.
-    th48_at_00 = _idw_sample(p00, p48_aligned, th48, k=3).astype(np.float32)
+    handling = getattr(config, "long_followup_handling", "zero_impute")
+    th48_status, sym_info = None, {}
+    if handling == "symmetric":
+        th48_at_00, th48_status, sym_info = _followup_symmetric(
+            p00, p48_aligned, np.asarray(th48), A, t, c48, sp48,
+            r_idw=float(getattr(config, "long_idw_radius_mm", 2.0)),
+            r_den=float(getattr(config, "long_denuded_dist_mm", 1.5)))
+        print(f"  [symmetric] measured {sym_info['frac_measured']:.2f} denuded {sym_info['frac_denuded']:.2f} failed {sym_info['frac_failed']:.2f}")
+    else:
+        th48_at_00 = _idw_sample(p00, p48_aligned, th48, k=3).astype(np.float32)
 
     # AXIS CONVENTION: this pipeline's mesh/mask order is (AP, SI, ML) — see
     # pipeline.py `ml_r=ptp(verts[:,2])`, `ap_r=ptp(verts[:,0])`. The v3.3 grid
@@ -953,8 +1023,11 @@ def process_long_baseline_grid(seg_00m_path: Path, seg_48m_path: Path,
         bone_name, p00_g, np.asarray(th00, np.float32), th48_at_00,
         b00_g, c00_g, sp00_g, laterality="right_oriented",
         femur_unwrap=getattr(config, "femur_unwrap", "per_slice"),
+        th48_status=th48_status,
     )
     fp = regions.pop("_footprint_bins", 0)
+    sym_info["frac_failed_cells"] = regions.pop("_frac_failed_cells", np.nan)
+    sym_info["frac_denuded_cells"] = regions.pop("_frac_denuded_cells", np.nan)
     g00 = regions.pop("_grid_00m", None); g48 = regions.pop("_grid_48m", None)
     verts = regions.pop("_verts", None)
     md = ", ".join(f"{k}Δ={v['d']:+.3f}" for k, v in regions.items() if k in ("cMF", "MT", "cLF", "LT"))
@@ -962,6 +1035,7 @@ def process_long_baseline_grid(seg_00m_path: Path, seg_48m_path: Path,
     return {
         "baseline_grid_regions": {k: v for k, v in regions.items()},
         "grid_00m": g00, "grid_48m": g48, "verts": verts,
+        "followup_handling": handling, "symmetric_info": sym_info,
         "pair_quality": {
             "bone_assd_before_mm": assd_before, "bone_assd_after_mm": assd_after,
             "long_trans_mm": float(np.linalg.norm(t)),

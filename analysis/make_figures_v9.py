@@ -47,7 +47,10 @@ def load_arms():
     """Primary figures use the label-free QC-pass deduped cohorts written by
     qc_labelfree_v9.py, so figures match the primary tables exactly. Falls back
     to the full-cohort CSVs if the QC outputs don't exist yet."""
-    qp, qn = RESULTS / "v9_prog_qcpass.csv", RESULTS / "v9_nonprog_qcpass.csv"
+    import os
+    _fr = os.environ.get("PDDESS_FRAME", "leakfree")
+    qp = RESULTS / (os.environ.get("PDDESS_SOURCE", "v9_1") + "_prog_leakfree.csv" if _fr == "leakfree" else "v9_prog_qcpass.csv")
+    qn = RESULTS / (os.environ.get("PDDESS_SOURCE", "v9_1") + "_nonprog_leakfree.csv" if _fr == "leakfree" else "v9_nonprog_qcpass.csv")
     if qp.exists() and qn.exists():
         prog = list(csv.DictReader(open(qp, encoding="utf-8")))
         nonp = list(csv.DictReader(open(qn, encoding="utf-8")))

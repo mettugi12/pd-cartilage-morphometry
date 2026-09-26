@@ -34,7 +34,10 @@ RED = "#c0392b"
 
 
 def load():
-    return list(csv.DictReader(open(RESULTS / "v9_prog_qcpass.csv", encoding="utf-8")))
+    import os
+    _fr = os.environ.get("PDDESS_FRAME", "leakfree")
+    _f = RESULTS / (os.environ.get("PDDESS_SOURCE", "v9_1") + "_prog_leakfree.csv" if _fr == "leakfree" else "v9_prog_qcpass.csv")
+    return list(csv.DictReader(open(_f, encoding="utf-8")))
 
 
 def _pair_um(rows, reg):

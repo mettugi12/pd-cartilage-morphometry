@@ -41,6 +41,8 @@ def counts():
         }
     out["progressor"]["final"] = len(list(csv.DictReader(open(RESULTS / "v9_prog_qcpass.csv", encoding="utf-8"))))
     out["stable"]["final"] = len(list(csv.DictReader(open(RESULTS / "v9_nonprog_qcpass.csv", encoding="utf-8"))))
+    out["progressor"]["primary"] = len(list(csv.DictReader(open(RESULTS / (__import__("os").environ.get("PDDESS_SOURCE", "v9_1") + "_prog_leakfree.csv"), encoding="utf-8"))))
+    out["stable"]["primary"] = len(list(csv.DictReader(open(RESULTS / (__import__("os").environ.get("PDDESS_SOURCE", "v9_1") + "_nonprog_leakfree.csv"), encoding="utf-8"))))
     return out
 
 
@@ -83,8 +85,10 @@ def main():
             f"|t| > 30 mm): excluded {k['icp_fail']}  →  n = {k['qc_pass']}",
             fc="#fff4e6", fs=8.5)
         arrow(ax, x + w / 2, 3.6, 3.15)
-        box(ax, x, 2.4, w, 0.75,
-            f"one knee per subject (seed 42)\nPRIMARY analysis set: n = {k['final']}",
+        box(ax, x, 2.25, w, 0.9,
+            f"one knee per subject (seed 42): n = {k['final']}\n"
+            f"excl. depth-network training-pool participants (−{k['final'] - k['primary']})\n"
+            f"PRIMARY analysis set: n = {k['primary']}",
             fc="#e9f5ec", bold=True, fs=8.5)
 
     # side arms

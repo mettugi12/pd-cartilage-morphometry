@@ -44,3 +44,13 @@ Edit those constants for your environment. The statistical scripts (`aggregate_*
 `make_figures*_v9.py`) read only the per-knee CSVs in `../results/` and run anywhere.
 OAI imaging and the expert manual DESS morphometry (kMRI_QCart_Eckstein) must be obtained from
 https://nda.nih.gov/oai under the OAI data-use agreement.
+
+## v9.2 (symmetric follow-up handling)
+
+`morphometry/cartilage_morphometry/validation/shared_mesh.py` gains `_followup_symmetric` and
+`baseline_grid.regional_deltas(th48_status=...)`; enabled with
+`PipelineConfig.long_followup_handling = "symmetric"` (`long_idw_radius_mm` 2.0, `long_denuded_dist_mm` 1.5).
+The legacy zero-imputation rule remains the library default. Scripts: `run_long_abs_v9_1.py --mode symmetric`
+(absolute regional thickness at both visits + expert absolute values), `make_v9_2_frames.py`,
+`analysis_v9_1_frames.py --source v9_2`, `cross_sectional_abs_v9_1.py --source v9_2`,
+`diagnose_drift_v9_1.py` (forward/reverse grid-owner test), `compare_followup_modes_v9_2.py`.

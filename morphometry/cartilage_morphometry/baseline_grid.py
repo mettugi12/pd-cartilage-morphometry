@@ -237,30 +237,72 @@ def mean_over(grid: np.ndarray, ref_mask: np.ndarray, d_slc, w_slc) -> float:
     return float(g_zi[m].sum() / n)
 
 
+def _count_grid(points_mm: np.ndarray, geo: dict, spacing, grid: int = GRID) -> np.ndarray:
+    """Number of vertices falling in each grid cell (uses unit thickness so that
+    vertex_norm_coords' validity filter keeps every vertex)."""
+    if len(points_mm) == 0:
+        return np.zeros((grid, grid), dtype=int)
+    d_norm, w_norm, _ = vertex_norm_coords(points_mm, np.ones(len(points_mm)), geo, spacing)
+    if len(d_norm) == 0:
+        return np.zeros((grid, grid), dtype=int)
+    d_bin = np.clip((d_norm * grid).astype(int), 0, grid - 1)
+    w_bin = np.clip((w_norm * grid).astype(int), 0, grid - 1)
+    cnt = np.zeros((grid, grid), dtype=int)
+    np.add.at(cnt, (d_bin, w_bin), 1)
+    return cnt
+
+
 def regional_deltas(bone_name: str, points_mm: np.ndarray,
                     th00: np.ndarray, th48: np.ndarray,
                     bone_mask: np.ndarray, cart_mask: np.ndarray, spacing,
                     laterality: str = "right_oriented",
-                    femur_unwrap: str = "per_slice") -> dict:
+                    femur_unwrap: str = "per_slice",
+                    th48_status: np.ndarray | None = None) -> dict:
     """Baseline-grid regional means + deltas for one knee/bone.
 
     `points_mm` are the shared (00m) sampling vertices that BOTH `th00` and
     `th48` are defined on (e.g. the 00m bone-mesh points, with 48m thickness
     IDW-sampled onto them). `bone_mask`/`cart_mask` are the 00m masks used to
     build the grid geometry. Returns {region: {"00m","48m","d"}, "_footprint_bins"}.
+
+    `th48_status` (v9.2 symmetric handling; see shared_mesh._followup_symmetric):
+    per-vertex 1 = measured, 0 = denuded (true zero), -1 = failed measurement.
+    Cells of the baseline footprint whose follow-up evidence is only failures are
+    EXCLUDED from both visits' means instead of being zero-imputed; cells whose
+    evidence is denudation are set to 0 explicitly. Legacy behaviour when None.
     """
     comp, regions = BONE_TO_COMP[bone_name]
     geo = compute_ref_geometry(cart_mask, bone_mask, comp, laterality, femur_unwrap=femur_unwrap)
     g00 = project_vertices_to_2d(points_mm, th00, geo, spacing)
-    g48 = project_vertices_to_2d(points_mm, th48, geo, spacing)
     ref_mask = np.isfinite(g00)
+    frac_failed = frac_denuded = np.nan
+    if th48_status is None:
+        g48 = project_vertices_to_2d(points_mm, th48, geo, spacing)
+    else:
+        st = np.asarray(th48_status)
+        pts = np.asarray(points_mm)
+        th48a_ = np.asarray(th48, float)
+        meas = st == 1
+        g48 = project_vertices_to_2d(pts[meas], th48a_[meas], geo, spacing) if meas.any() else np.full((GRID, GRID), np.nan)
+        den_c = _count_grid(pts[st == 0], geo, spacing)
+        fail_c = _count_grid(pts[st == -1], geo, spacing)
+        nomeas = ~np.isfinite(g48)
+        denuded_cell = nomeas & (den_c > 0) & (den_c >= fail_c)
+        failed_cell = nomeas & ~denuded_cell
+        g48 = g48.copy()
+        g48[denuded_cell] = 0.0
+        n_fp = max(int(ref_mask.sum()), 1)
+        frac_failed = float((ref_mask & failed_cell).sum() / n_fp)
+        frac_denuded = float((ref_mask & denuded_cell).sum() / n_fp)
+        ref_mask = ref_mask & ~failed_cell        # symmetric exclusion (both visits)
     # Per-vertex normalised coords on the 00m cartilage footprint (for high-res
     # interpolated visualisation; the 40x40 grids above are only for the means).
     th00a, th48a = np.asarray(th00, float), np.asarray(th48, float)
     fp = (th00a > MIN_THICK_MM) & (th00a < MAX_THICK_MM)
     dn, wn, _ = vertex_norm_coords(np.asarray(points_mm)[fp], th00a[fp], geo, spacing)
     out = {"_footprint_bins": int(ref_mask.sum()), "_grid_00m": g00, "_grid_48m": g48,
-           "_verts": (dn, wn, th00a[fp], th48a[fp])}
+           "_verts": (dn, wn, th00a[fp], th48a[fp]),
+           "_frac_failed_cells": frac_failed, "_frac_denuded_cells": frac_denuded}
     for name, dsl, wsl in regions:
         m00 = mean_over(g00, ref_mask, dsl, wsl)
         m48 = mean_over(g48, ref_mask, dsl, wsl)
