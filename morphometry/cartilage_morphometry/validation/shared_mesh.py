@@ -1024,8 +1024,14 @@ def process_long_baseline_grid(seg_00m_path: Path, seg_48m_path: Path,
         b00_g, c00_g, sp00_g, laterality="right_oriented",
         femur_unwrap=getattr(config, "femur_unwrap", "per_slice"),
         th48_status=th48_status,
+        femur_region=getattr(config, "long_femur_region", "grid"),
+        total_bone_area=bool(getattr(config, "long_total_bone_area", False)),
     )
     fp = regions.pop("_footprint_bins", 0)
+    tab = regions.pop("_tab_info", None)
+    if tab:
+        sym_info.update({k: v for k, v in tab.items() if not k.startswith("vertex_")})
+    sym_info["femur_region_info"] = regions.pop("_femur_region_info", None)
     sym_info["frac_failed_cells"] = regions.pop("_frac_failed_cells", np.nan)
     sym_info["frac_denuded_cells"] = regions.pop("_frac_denuded_cells", np.nan)
     g00 = regions.pop("_grid_00m", None); g48 = regions.pop("_grid_48m", None)

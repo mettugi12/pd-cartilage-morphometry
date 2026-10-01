@@ -252,12 +252,167 @@ def _count_grid(points_mm: np.ndarray, geo: dict, spacing, grid: int = GRID) -> 
     return cnt
 
 
+def total_bone_area_grids(points_mm: np.ndarray, th00: np.ndarray, th48: np.ndarray, th48_status: np.ndarray,
+                          cart_mask: np.ndarray, geo: dict, spacing, r_den_mm: float = 1.5,
+                          fine: int = 120, grid: int = GRID) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """Cell means over the total subchondral bone area of the baseline plate, denuded bone = 0 mm.
+
+    Chondrometrics reports thickness over the total subchondral bone area (ThCtAB), with denuded bone
+    counted as 0 mm (OAI kMRI_QCart_Eckstein_Descrip p11-12). The legacy grid averages only vertices
+    that carry cartilage, so denuded bone inside a partly covered cell drops out at either visit.
+
+    Vertex set (identical at both visits):
+      zone   = bone-surface vertices inside the outer contour of the baseline cartilage plate: the
+               cartilage-bearing vertices are rasterised on a fine (`fine` x `fine`) version of the grid,
+               closed by one cell and hole-filled; every bone vertex falling in that area belongs to it
+               (bone beyond the plate edge and the intercondylar gap stay out).
+      00m    = measured thickness; else 0 if no 00m cartilage voxel within `r_den_mm` (denuded);
+               else failed ray-cast.
+      48m    = status 1 -> thickness; 0 -> 0 (denuded, symmetric rule); -1 -> failed.
+      Vertices failed at either visit are dropped from BOTH visits.
+    Returns (g00, g48, ref_mask, info) on the `grid` x `grid` baseline grid.
+    """
+    from scipy.ndimage import binary_closing, binary_fill_holes, distance_transform_edt
+
+    pts = np.asarray(points_mm, float)
+    th00 = np.asarray(th00); th48 = np.asarray(th48, float); st = np.asarray(th48_status)
+    valid = (th00 > MIN_THICK_MM) & (th00 < MAX_THICK_MM)
+    dn, wn, _ = vertex_norm_coords(pts, np.ones(len(pts)), geo, spacing)      # every vertex, same order
+    sp = np.asarray(spacing, float)
+    if geo["compartment"] == "FC":
+        fd = np.clip((dn * fine).astype(int), 0, fine - 1); fw = np.clip((wn * fine).astype(int), 0, fine - 1)
+        nb0, nb1 = fine, fine
+    else:
+        # Tibia: the plateau is near-planar, so the plate outline is drawn in the isotropic top view
+        # (ML x AP, 1 mm bins). The normalised grid follows the sagittal slice positions, and closing it
+        # bridges the slice stripes onto the sloping rim / cortex below the plateau margin.
+        lo_ml, lo_ap = pts[:, 0].min(), pts[:, 2].min()
+        fd = ((pts[:, 0] - lo_ml) / 1.0).astype(int); fw = ((pts[:, 2] - lo_ap) / 1.0).astype(int)
+        nb0, nb1 = int(fd.max()) + 1, int(fw.max()) + 1
+    pres = np.zeros((nb0, nb1), bool); pres[fd[valid], fw[valid]] = True
+    area = binary_fill_holes(binary_closing(pres, structure=np.ones((3, 3)), iterations=1)) | pres
+    zone = area[fd, fw]
+
+    # Articular surface only: non-articular bone (condyle side walls, intercondylar walls) runs roughly
+    # parallel to the slices and maps onto the same (slice, arc) bins at a smaller radius from the slice
+    # centroid (femur) / lower on the plateau (tibia). A vertex without cartilage counts only if it lies on
+    # the outermost surface of its fine bin (within `surf_tol_mm` of the bin maximum).
+    surf_tol_mm = 1.5
+    if geo["compartment"] == "FC":
+        d_vox = pts[:, 0] / sp[0]; h_vox = pts[:, 1] / sp[1]; w_vox = pts[:, 2] / sp[2]
+        dc = np.clip(d_vox.astype(int), 0, len(geo["h_c"]) - 1)
+        if geo.get("femur_unwrap") == "best_fit_circle":
+            hc, wc = geo["h_c_fit"], geo["w_c_fit"]
+        else:
+            hc, wc = geo["h_c"][dc], geo["w_c"][dc]
+        outward = np.hypot((h_vox - hc) * sp[1], (w_vox - wc) * sp[2])     # radius from the slice centroid
+    else:
+        # plateau faces proximally; the SI sign of the patient volume is not fixed, so take the articular
+        # direction from the data: cartilage-bearing vertices lie on the articular side of the bone
+        si = pts[:, 1]
+        sgn = -1.0 if si[valid].mean() < si.mean() else 1.0
+        outward = sgn * si
+    fb = fd * nb1 + fw
+    bmax = np.full(nb0 * nb1, -np.inf)
+    np.maximum.at(bmax, fb[zone], outward[zone])
+    articular = outward >= bmax[fb] - surf_tol_mm
+
+    cand = zone & ~valid & articular                                        # articular zone bone w/o baseline cartilage
+    zone = zone & (valid | articular)
+    near = np.zeros(len(pts), bool)
+    if cand.any():
+        vox = np.rint(pts[cand] / sp).astype(int)
+        cart = np.asarray(cart_mask, bool)
+        lo = np.maximum(vox.min(0) - 10, 0); hi = np.minimum(vox.max(0) + 11, cart.shape)
+        sub = cart[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]
+        dist = distance_transform_edt(~sub, sampling=sp) if sub.any() else np.full(sub.shape, np.inf)
+        v = np.clip(vox - lo, 0, np.array(sub.shape) - 1)
+        near[np.where(cand)[0]] = dist[v[:, 0], v[:, 1], v[:, 2]] <= r_den_mm
+    den00 = cand & ~near
+    fail00 = cand & near
+    t00 = np.where(valid, th00.astype(float), 0.0)
+    t48 = np.where(st == 1, th48, 0.0)
+    keep = zone & ~fail00 & (st != -1)
+
+    gd = np.clip((dn * grid).astype(int), 0, grid - 1); gw = np.clip((wn * grid).astype(int), 0, grid - 1)
+    cnt = np.zeros((grid, grid)); s0 = np.zeros((grid, grid)); s4 = np.zeros((grid, grid))
+    np.add.at(cnt, (gd[keep], gw[keep]), 1)
+    np.add.at(s0, (gd[keep], gw[keep]), t00[keep]); np.add.at(s4, (gd[keep], gw[keep]), t48[keep])
+    ref = cnt > 0
+    g00 = np.where(ref, s0 / np.maximum(cnt, 1), np.nan); g48 = np.where(ref, s4 / np.maximum(cnt, 1), np.nan)
+    info = {"n_zone": int(zone.sum()), "n_kept": int(keep.sum()), "n_den00": int((den00 & keep).sum()),
+            "n_den48": int((keep & (st == 0)).sum()), "n_fail00": int(fail00.sum()),
+            "n_fail48": int((zone & ~fail00 & (st == -1)).sum()),
+            "vertex_den00": den00, "vertex_keep": keep, "vertex_zone": zone, "vertex_fail00": fail00}
+    return g00, g48, ref, info
+
+
+def eckstein_first_crossing_masks(points_mm: np.ndarray, th00: np.ndarray, geo: dict, spacing,
+                                  fraction: float = 0.75, grid: int = GRID,
+                                  zone: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Chondrometrics-style central femoral regions (cMF / cLF) as masks on the baseline grid.
+
+    Chondrometrics (OAI kMRI_QCart_Eckstein_Descrip, Fig. 2): the condyle is split by a plane parallel to
+    the femoral shaft at `fraction` (0.60 or 0.75) of the AP distance between the trochlear notch and the
+    posterior end of the condyle; cMF runs from the notch plane to that divider. Landmarks come from
+    `subregions.find_femur_eckstein_landmarks` on the 00m cartilage-bearing vertices (notch = max-AP vertex
+    within +-2 mm of the ML midline; end = max-AP vertex per condyle).
+
+    The condyle is C-shaped, so the divider cuts it twice (distal surface and the posterior curl-back).
+    Only cartilage continuous from the notch up to the FIRST crossing is central: per ML row of the grid,
+    walk the arc anterior -> posterior and keep the running maximum of the cell AP; once it passes the
+    divider, every further cell is posterior even where AP falls back below it.
+
+    `points_mm` in grid order (ML, SI, AP) mm, same vertices and geometry as `regional_deltas`.
+    `zone` (optional): cells to be classified even without measured cartilage (e.g. baseline-denuded
+    cells); their AP position is taken from the nearest cartilage-bearing cell.
+    Returns (cMF mask, cLF mask, info) with masks shaped (grid, grid) over (D rows, W cols).
+    """
+    import pyvista as pv
+    from . import subregions as _sr
+
+    th00 = np.asarray(th00)                     # keep dtype: same validity filter as vertex_norm_coords
+    pts = np.asarray(points_mm, float)
+    valid = (th00 > MIN_THICK_MM) & (th00 < MAX_THICK_MM)
+    dn, wn, _ = vertex_norm_coords(pts[valid], th00[valid], geo, spacing)
+    db = np.clip((dn * grid).astype(int), 0, grid - 1)
+    wb = np.clip((wn * grid).astype(int), 0, grid - 1)
+    s = np.zeros((grid, grid)); c = np.zeros((grid, grid))
+    np.add.at(s, (db, wb), pts[valid][:, 2]); np.add.at(c, (db, wb), 1)
+    cell_ap = np.where(c > 0, s / np.maximum(c, 1), np.nan)
+    if zone is not None and np.isfinite(cell_ap).any():
+        from scipy.ndimage import distance_transform_edt
+        _, inds = distance_transform_edt(~np.isfinite(cell_ap), return_indices=True)
+        fill = np.asarray(zone, bool) & ~np.isfinite(cell_ap)
+        cell_ap = cell_ap.copy(); cell_ap[fill] = cell_ap[tuple(inds[:, fill])]
+
+    col_ap = np.array([np.nanmedian(cell_ap[:, k]) if np.isfinite(cell_ap[:, k]).any() else np.nan for k in range(grid)])
+    cols = np.arange(grid) if np.nanmean(col_ap[: grid // 4]) < np.nanmean(col_ap[-grid // 4:]) else np.arange(grid)[::-1]
+    cum = np.full((grid, grid), np.nan)
+    cum[:, cols] = np.maximum.accumulate(np.where(np.isfinite(cell_ap[:, cols]), cell_ap[:, cols], -np.inf), axis=1)
+
+    m = pv.PolyData(np.ascontiguousarray(pts[:, [2, 1, 0]]))      # (AP, SI, ML) as the landmark finder expects
+    m.point_data["subch_prob"] = valid.astype(float)
+    L = _sr.find_femur_eckstein_landmarks(m, subch_thresh=0.5, ml_slice_tol_mm=2.0)
+    ap0 = L["ap_notch"]
+    rows = np.zeros((grid, grid), bool)
+    masks = []
+    for dsl, ap_end in ((slice(0, grid // 2), L["ap_end_med"]), (slice(grid // 2, grid), L["ap_end_lat"])):
+        split = ap0 + fraction * (ap_end - ap0)
+        r = rows.copy(); r[dsl, :] = True
+        masks.append(r & (cell_ap >= ap0) & (cum <= split))
+    info = {"ap_notch": ap0, "ap_end_med": L["ap_end_med"], "ap_end_lat": L["ap_end_lat"], "fraction": fraction}
+    return masks[0], masks[1], info
+
+
 def regional_deltas(bone_name: str, points_mm: np.ndarray,
                     th00: np.ndarray, th48: np.ndarray,
                     bone_mask: np.ndarray, cart_mask: np.ndarray, spacing,
                     laterality: str = "right_oriented",
                     femur_unwrap: str = "per_slice",
-                    th48_status: np.ndarray | None = None) -> dict:
+                    th48_status: np.ndarray | None = None,
+                    femur_region: str = "grid",
+                    total_bone_area: bool = False) -> dict:
     """Baseline-grid regional means + deltas for one knee/bone.
 
     `points_mm` are the shared (00m) sampling vertices that BOTH `th00` and
@@ -270,13 +425,29 @@ def regional_deltas(bone_name: str, points_mm: np.ndarray,
     Cells of the baseline footprint whose follow-up evidence is only failures are
     EXCLUDED from both visits' means instead of being zero-imputed; cells whose
     evidence is denudation are set to 0 explicitly. Legacy behaviour when None.
+
+    `femur_region` (femur only): "grid" = legacy cMF/cLF (medial/lateral half x central
+    20-80 % of the whole cartilage arc, trochlea included); "eckstein75" / "eckstein60" =
+    Chondrometrics-style notch-anchored first-crossing regions (`eckstein_first_crossing_masks`).
+    Tibial regions are unaffected.
+
+    `total_bone_area` (requires `th48_status`): cell means over the total subchondral bone area of the
+    baseline plate with denuded bone = 0 mm at either visit, on one vertex set for both visits
+    (Chondrometrics ThCtAB convention; see `total_bone_area_grids`). Default off (legacy: only
+    cartilage-bearing vertices, failures handled per cell).
     """
     comp, regions = BONE_TO_COMP[bone_name]
     geo = compute_ref_geometry(cart_mask, bone_mask, comp, laterality, femur_unwrap=femur_unwrap)
     g00 = project_vertices_to_2d(points_mm, th00, geo, spacing)
     ref_mask = np.isfinite(g00)
+    tab_info = None
     frac_failed = frac_denuded = np.nan
-    if th48_status is None:
+    if total_bone_area:
+        if th48_status is None:
+            raise ValueError("total_bone_area requires th48_status (symmetric follow-up handling)")
+        g00, g48, ref_mask, tab_info = total_bone_area_grids(points_mm, th00, th48, th48_status,
+                                                             cart_mask, geo, spacing)
+    elif th48_status is None:
         g48 = project_vertices_to_2d(points_mm, th48, geo, spacing)
     else:
         st = np.asarray(th48_status)
@@ -302,10 +473,23 @@ def regional_deltas(bone_name: str, points_mm: np.ndarray,
     dn, wn, _ = vertex_norm_coords(np.asarray(points_mm)[fp], th00a[fp], geo, spacing)
     out = {"_footprint_bins": int(ref_mask.sum()), "_grid_00m": g00, "_grid_48m": g48,
            "_verts": (dn, wn, th00a[fp], th48a[fp]),
-           "_frac_failed_cells": frac_failed, "_frac_denuded_cells": frac_denuded}
+           "_frac_failed_cells": frac_failed, "_frac_denuded_cells": frac_denuded,
+           "_tab_info": tab_info}
     for name, dsl, wsl in regions:
         m00 = mean_over(g00, ref_mask, dsl, wsl)
         m48 = mean_over(g48, ref_mask, dsl, wsl)
         out[name] = {"00m": m00, "48m": m48,
                      "d": (m48 - m00) if (np.isfinite(m00) and np.isfinite(m48)) else np.nan}
+    if bone_name == "femur" and femur_region != "grid":
+        frac = {"eckstein75": 0.75, "eckstein60": 0.60}[femur_region]
+        mk_med, mk_lat, info = eckstein_first_crossing_masks(points_mm, th00, geo, spacing, fraction=frac,
+                                                             zone=ref_mask)
+        info["cells_cMF"] = int((ref_mask & mk_med).sum()); info["cells_cLF"] = int((ref_mask & mk_lat).sum())
+        full = (slice(0, GRID), slice(0, GRID))
+        for name, mk in (("cMF", mk_med), ("cLF", mk_lat)):
+            m00 = mean_over(g00, ref_mask & mk, *full)
+            m48 = mean_over(g48, ref_mask & mk, *full)
+            out[name] = {"00m": m00, "48m": m48,
+                         "d": (m48 - m00) if (np.isfinite(m00) and np.isfinite(m48)) else np.nan}
+        out["_femur_region_info"] = info
     return out

@@ -1,4 +1,4 @@
-"""Supplementary figure: qualitative segmentation validation (post-JMRI revision).
+"""Supplementary figure: qualitative segmentation validation (post-JMRI revision; DESS panel orientation fixed 2026-09-29).
 
 Reviewer 1 & 2 asked for sagittal slices comparing DESS/PD and automated vs manual
 contours, and for visual validation of the held-out Dice values.
@@ -111,11 +111,15 @@ def main():
     pr, _ = load_canon(EVAL / "predsTs" / f"{OAI_CASE}_seg.nii.gz")
     i = sag_slice_index(gt)
     show(axes[0, 0], img, gt, None, i, z, "PD/IW, manual")
-    show(axes[0, 1], img, None, pr, i, z, f"PD/IW, automated (held-out; FC Dice {oai['dice_05_femur_cart']:.2f})")
-    dimg, dz = load_canon(TRIPLE / "DESS.nii.gz")
-    dlab, _ = load_canon(TRIPLE / "DESS_mask.nii.gz")
+    show(axes[0, 1], img, None, pr, i, z, f"PD/IW, automated (FC Dice {oai['dice_05_femur_cart']:.2f})")
+    # The Triple-GT DESS volume is stored in pipeline axis order (AP, SI, ML) with a diagonal header, so the
+    # canonical loader yields a coronal plane for img[i]. Reorder to (ML, AP, SI) and flip AP/SI so the
+    # sagittal slice is displayed like the PD/IW panels (anterior left, superior up); verified visually.
+    dimg = np.ascontiguousarray(np.transpose(np.asanyarray(nib.load(str(TRIPLE / "DESS.nii.gz")).dataobj), (2, 0, 1))[:, ::-1, ::-1])
+    dlab = np.ascontiguousarray(np.transpose(np.asanyarray(nib.load(str(TRIPLE / "DESS_mask.nii.gz")).dataobj), (2, 0, 1))[:, ::-1, ::-1])
+    dz = (0.7, 0.7, 0.7)
     j = sag_slice_index(dlab)
-    show(axes[0, 2], dimg, dlab, None, j, dz, "DESS, manual (same knee)")
+    show(axes[0, 2], dimg, None, None, j, dz, "DESS, same knee", crop_ref=dlab)   # image only, no in-house contour
 
     # ---- rows b, c: hospital median / worst
     for row, rec, tag in ((1, median, "median"), (2, worst, "worst")):
